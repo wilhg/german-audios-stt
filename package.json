@@ -1,0 +1,16 @@
+{
+  "name": "german-audios-stt",
+  "version": "1.0.0",
+  "description": "CLI tool to batch transcribe mp3 files via speech-to-text",
+  "type": "module",
+  "bin": {
+    "transcribe-mp3": "./transcribe.js"
+  },
+  "scripts": {
+    "start": "node transcribe.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "openai": "^4.57.0"
+  }
+}
