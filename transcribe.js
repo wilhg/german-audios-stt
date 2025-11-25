@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 import fs from "fs";
 import path from "path";
+import os from "os";
 import process from "process";
 import { fileURLToPath } from "url";
+import { spawn } from "child_process";
 import OpenAI from "openai";
 import dotenv from "dotenv";
 
@@ -18,6 +20,7 @@ const USAGE = `
 Usage: node transcribe.js <folderPath> [--language=de-DE] [--concurrency=8]
 
 Environment: OPENAI_API_KEY must be set. Uses OpenAI Whisper (whisper-1).
+Supports .mp3 directly and .mp4 via ffmpeg audio extraction.
 `.trim();
 
 const parseArgs = () => {
@@ -54,17 +57,22 @@ const ensurePath = async (targetPath) => {
   return stat;
 };
 
-const collectMp3Files = async (targetPath, stat) => {
+const isSupportedAudio = (fileName) => {
+  const ext = path.extname(fileName).toLowerCase();
+  return ext === ".mp3" || ext === ".mp4";
+};
+
+const collectAudioFiles = async (targetPath, stat) => {
   if (stat.isFile()) {
-    if (!targetPath.toLowerCase().endsWith(".mp3")) {
-      throw new Error("Provided file is not an .mp3");
+    if (!isSupportedAudio(targetPath)) {
+      throw new Error("Provided file is not an .mp3 or .mp4");
     }
     return [targetPath];
   }
 
   const entries = await fsp.readdir(targetPath, { withFileTypes: true });
   return entries
-    .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".mp3"))
+    .filter((entry) => entry.isFile() && isSupportedAudio(entry.name))
     .map((entry) => path.join(targetPath, entry.name));
 };
 
@@ -99,15 +107,84 @@ const saveTranscript = async (filePath, transcript) => {
   return outputPath;
 };
 
+const runCommand = (command, args) =>
+  new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: ["ignore", "inherit", "inherit"] });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`${command} exited with code ${code}`));
+      }
+    });
+  });
+
+const hasFfmpeg = () =>
+  new Promise((resolve) => {
+    const child = spawn("ffmpeg", ["-version"], { stdio: "ignore" });
+    child.on("error", () => resolve(false));
+    child.on("close", (code) => resolve(code === 0));
+  });
+
+const ensureFfmpegForMp4 = async (files) => {
+  const needsFfmpeg = files.some((file) => path.extname(file).toLowerCase() === ".mp4");
+  if (!needsFfmpeg) return;
+
+  const available = await hasFfmpeg();
+  if (!available) {
+    throw new Error("ffmpeg is required to process .mp4 files but was not found in PATH.");
+  }
+};
+
+const extractAudioFromMp4 = async (filePath) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), "stt-audio-"));
+  const outputPath = path.join(
+    tempDir,
+    `${path.basename(filePath, path.extname(filePath))}.mp3`
+  );
+
+  console.log(`Extracting audio from ${filePath}...`);
+  await runCommand("ffmpeg", [
+    "-y",
+    "-i",
+    filePath,
+    "-vn",
+    "-acodec",
+    "libmp3lame",
+    "-loglevel",
+    "error",
+    outputPath,
+  ]);
+
+  return { outputPath, tempDir };
+};
+
 const processFile = async (clients, options, filePath) => {
   const { openai } = clients;
   const { languageCode } = options;
 
   console.log(`Processing ${filePath}...`);
 
-  const transcript = await transcribeWithOpenAI(openai, filePath, languageCode);
-  const outputPath = await saveTranscript(filePath, transcript);
-  console.log(`Saved transcript to ${outputPath}`);
+  const ext = path.extname(filePath).toLowerCase();
+  let audioPath = filePath;
+  let cleanupDir;
+
+  if (ext === ".mp4") {
+    const { outputPath, tempDir } = await extractAudioFromMp4(filePath);
+    audioPath = outputPath;
+    cleanupDir = tempDir;
+  }
+
+  try {
+    const transcript = await transcribeWithOpenAI(openai, audioPath, languageCode);
+    const outputPath = await saveTranscript(filePath, transcript);
+    console.log(`Saved transcript to ${outputPath}`);
+  } finally {
+    if (cleanupDir) {
+      await fsp.rm(cleanupDir, { recursive: true, force: true });
+    }
+  }
 };
 
 const runWithConcurrency = async (items, limit, fn) => {
@@ -132,9 +209,9 @@ const main = async () => {
   const { folderPath, languageCode, concurrency } = parseArgs();
   const stat = await ensurePath(folderPath);
 
-  const mp3Files = await collectMp3Files(folderPath, stat);
-  if (mp3Files.length === 0) {
-    console.log(`No .mp3 files found in ${folderPath}`);
+  const audioFiles = await collectAudioFiles(folderPath, stat);
+  if (audioFiles.length === 0) {
+    console.log(`No .mp3 or .mp4 files found in ${folderPath}`);
     return;
   }
 
@@ -144,7 +221,9 @@ const main = async () => {
   }
   const openai = new OpenAI({ apiKey });
 
-  await runWithConcurrency(mp3Files, concurrency, (filePath) =>
+  await ensureFfmpegForMp4(audioFiles);
+
+  await runWithConcurrency(audioFiles, concurrency, (filePath) =>
     processFile({ openai }, { languageCode }, filePath)
   );
 

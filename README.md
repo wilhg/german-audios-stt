@@ -22,11 +22,12 @@ npm install
 node transcribe.js <folderPath> [--language=de-DE] [--concurrency=8]
 ```
 
-- `folderPath`: local directory containing `.mp3` files, or a single `.mp3` file
+- `folderPath`: local directory containing `.mp3`/`.mp4` files, or a single `.mp3`/`.mp4` file
 - `--language`: Speech language code (default `de-DE`). Whisper expects ISO 639-1 codes; `de-DE` will be mapped to `de`.
 - `--concurrency`: how many files to process in parallel (default 8). Increase carefully—too high may hit API/storage limits.
 
 Notes:
+- `.mp4` files are first converted to audio with `ffmpeg` (must be installed and in your PATH).
 - OpenAI Whisper has file size limits (see OpenAI docs; keep files reasonably small or split if needed).
 
 Example:
