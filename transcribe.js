@@ -17,7 +17,7 @@ const __dirname = path.dirname(__filename);
 dotenv.config();
 
 const USAGE = `
-Usage: node transcribe.js <folderPath> [--language=de-DE] [--concurrency=8]
+Usage: node transcribe.js <folderOrFile> [<folderOrFile> ...] [--language=de-DE] [--concurrency=8]
 
 Environment: OPENAI_API_KEY must be set. Uses OpenAI Whisper (whisper-1).
 Supports .mp3 directly and .mp4 via ffmpeg audio extraction.
@@ -25,16 +25,12 @@ Supports .mp3 directly and .mp4 via ffmpeg audio extraction.
 
 const parseArgs = () => {
   const args = process.argv.slice(2);
-  if (args.length < 1) {
-    throw new Error(USAGE);
-  }
-
-  const folderPath = path.resolve(args[0]);
 
   let languageCode = "de-DE";
   let concurrency = 8;
+  const targetPaths = [];
 
-  args.slice(2).forEach((arg) => {
+  args.forEach((arg) => {
     if (arg.startsWith("--language=")) {
       languageCode = arg.split("=", 2)[1];
     } else if (arg.startsWith("--concurrency=")) {
@@ -43,10 +39,19 @@ const parseArgs = () => {
         throw new Error("--concurrency must be a positive integer");
       }
       concurrency = parsed;
+    } else {
+      targetPaths.push(path.resolve(arg));
     }
   });
 
-  return { folderPath, languageCode, concurrency };
+  if (targetPaths.length === 0) {
+    throw new Error(USAGE);
+  }
+
+  // Remove duplicates while preserving order.
+  const uniquePaths = [...new Set(targetPaths)];
+
+  return { targetPaths: uniquePaths, languageCode, concurrency };
 };
 
 const ensurePath = async (targetPath) => {
@@ -206,12 +211,22 @@ const runWithConcurrency = async (items, limit, fn) => {
 };
 
 const main = async () => {
-  const { folderPath, languageCode, concurrency } = parseArgs();
-  const stat = await ensurePath(folderPath);
+  const { targetPaths, languageCode, concurrency } = parseArgs();
 
-  const audioFiles = await collectAudioFiles(folderPath, stat);
+  const allAudioFiles = (
+    await Promise.all(
+      targetPaths.map(async (targetPath) => {
+        const stat = await ensurePath(targetPath);
+        return collectAudioFiles(targetPath, stat);
+      })
+    )
+  ).flat();
+
+  // Remove duplicates while preserving order
+  const audioFiles = allAudioFiles.filter((file, idx, arr) => arr.indexOf(file) === idx);
+
   if (audioFiles.length === 0) {
-    console.log(`No .mp3 or .mp4 files found in ${folderPath}`);
+    console.log("No .mp3 or .mp4 files found in the provided paths.");
     return;
   }
 

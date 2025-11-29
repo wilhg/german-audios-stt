@@ -19,10 +19,10 @@ npm install
 
 ## Usage
 ```bash
-node transcribe.js <folderPath> [--language=de-DE] [--concurrency=8]
+node transcribe.js <folderOrFile> [<folderOrFile> ...] [--language=de-DE] [--concurrency=8]
 ```
 
-- `folderPath`: local directory containing `.mp3`/`.mp4` files, or a single `.mp3`/`.mp4` file
+- `folderOrFile`: one or more directories containing `.mp3`/`.mp4` files, or `.mp3`/`.mp4` files themselves
 - `--language`: Speech language code (default `de-DE`). Whisper expects ISO 639-1 codes; `de-DE` will be mapped to `de`.
 - `--concurrency`: how many files to process in parallel (default 8). Increase carefully—too high may hit API/storage limits.
 
@@ -32,7 +32,7 @@ Notes:
 
 Example:
 ```bash
-OPENAI_API_KEY=sk-... node transcribe.js ./audios --language=de-DE --concurrency=8
+OPENAI_API_KEY=sk-... node transcribe.js ./audios ./more_audios/file.mp3 --language=de-DE --concurrency=8
 ```
 
 Outputs are written alongside each source file, e.g. `song.mp3` -> `song.txt`.

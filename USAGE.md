@@ -8,9 +8,9 @@ OPENAI_API_KEY=sk-... # or put this in a .env file
 ```
 3) Run:
 ```bash
-node transcribe.js <folderPath> [--language=de-DE] [--concurrency=8]
+node transcribe.js <folderOrFile> [<folderOrFile> ...] [--language=de-DE] [--concurrency=8]
 ```
-- `<folderPath>`: directory with `.mp3`/`.mp4` files, or a single `.mp3`/`.mp4` file
+- `<folderOrFile>`: one or more directories with `.mp3`/`.mp4` files, or `.mp3`/`.mp4` files themselves
 - `--language`: language code (default `de-DE`; mapped to ISO 639-1 `de` for Whisper)
 - `--concurrency`: parallel files (default 8)
 
